@@ -1,0 +1,1140 @@
+═══════════════════════════════════════════════════════════════════════════
+                    EXPLICATION COMPLÈTE DU CODE
+                  Ligne par ligne, simple et claire
+═══════════════════════════════════════════════════════════════════════════
+
+
+                        TABLE DES MATIÈRES
+
+1. email_parser.py      - Comment on lit un fichier .eml
+2. detection_rules.py   - Comment on détecte les anomalies
+3. risk_scorer.py       - Comment on calcule le score
+4. exporters.py         - Comment on sauvegarde les résultats
+5. __main__.py          - Comment tout s'orchestre
+
+
+═══════════════════════════════════════════════════════════════════════════
+📧 FICHIER 1 : email_parser.py
+═══════════════════════════════════════════════════════════════════════════
+
+RÔLE : Lire un fichier .eml et en extraire les informations importantes
+
+────────────────────────────────────────────────────────────────────────────
+LIGNE PAR LIGNE
+────────────────────────────────────────────────────────────────────────────
+
+```python
+import re
+from bs4 import BeautifulSoup
+```
+
+EXPLICATION :
+- `import re` = On importe le module regex (expressions régulières)
+- `from bs4 import BeautifulSoup` = On importe BeautifulSoup pour parser HTML
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+class AnalyseurEmail:
+```
+
+EXPLICATION :
+- On crée une CLASSE (= un moule pour créer des objets)
+- C'est comme une recette : elle définit comment analyser un email
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def __init__(self, chemin_fichier: str):
+    self.chemin_fichier = chemin_fichier
+    self.contenu_brut = ""
+    self.entetes = {}
+    self.corps = ""
+```
+
+EXPLICATION :
+- `__init__` = Le CONSTRUCTEUR (ce qui se passe quand on crée l'objet)
+- `self` = L'objet lui-même (comme "moi" pour une personne)
+- `chemin_fichier: str` = Le paramètre attendu (type = chaîne de texte)
+
+Variables d'instance (stockées dans l'objet) :
+- `self.chemin_fichier` = Où se trouve le fichier à lire
+- `self.contenu_brut` = Le texte complet du fichier (vide au début)
+- `self.entetes` = Dictionnaire pour stocker les en-têtes (From, To, etc.)
+- `self.corps` = Le message lui-même (vide au début)
+
+ANALOGIE :
+C'est comme préparer un dossier vide avant de le remplir avec les infos
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def charger_email(self):
+    with open(self.chemin_fichier, 'r', encoding='utf-8') as fichier:
+        self.contenu_brut = fichier.read()
+```
+
+EXPLICATION :
+- `def charger_email(self):` = Définition d'une méthode (fonction dans la classe)
+- `with open(...)` = Ouvre le fichier de manière sécurisée (se ferme automatiquement)
+- `'r'` = Mode lecture ("read")
+- `encoding='utf-8'` = Format de caractères (pour accents, émojis, etc.)
+- `as fichier` = Donne un nom court pour manipuler le fichier
+- `fichier.read()` = Lit TOUT le contenu du fichier
+- `self.contenu_brut = ...` = Stocke le contenu dans la variable
+
+ANALOGIE :
+Tu ouvres une lettre, tu lis tout ce qu'il y a dedans, et tu le mets de côté
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def extraire_entetes(self):
+    pattern = r'^(From|To|Subject|Date|Reply-To):\s*(.+)$'
+    matches = re.findall(pattern, self.contenu_brut, re.MULTILINE | re.IGNORECASE)
+    
+    for nom, valeur in matches:
+        self.entetes[nom.capitalize()] = valeur.strip()
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `pattern = r'^(From|To|Subject|Date|Reply-To):\s*(.+)$'`
+   - `r'...'` = Raw string (les \ ne sont pas échappés)
+   - `^` = Début de ligne
+   - `(From|To|...)` = Groupe 1 : Capture UN de ces mots
+   - `:` = Deux-points littéral
+   - `\s*` = Zéro ou plusieurs espaces
+   - `(.+)` = Groupe 2 : Capture tout le reste de la ligne
+   - `$` = Fin de ligne
+
+2. `re.findall(pattern, texte, flags)`
+   - Cherche TOUTES les occurrences du pattern dans le texte
+   - `re.MULTILINE` = ^ et $ fonctionnent sur chaque ligne
+   - `re.IGNORECASE` = Insensible à la casse (From = from)
+   - Retourne une LISTE de TUPLES : [('From', 'alice@...'), ('To', 'bob@...')]
+
+3. `for nom, valeur in matches:`
+   - Boucle sur chaque résultat trouvé
+   - Décompose le tuple en 2 variables : nom et valeur
+
+4. `self.entetes[nom.capitalize()] = valeur.strip()`
+   - `.capitalize()` = Met la première lettre en majuscule
+   - `.strip()` = Retire les espaces en début/fin
+   - Stocke dans le dictionnaire : {'From': 'alice@...', 'To': 'bob@...'}
+
+EXEMPLE CONCRET :
+Texte : "From: alice@example.com\nTo: bob@example.com"
+Résultat : {'From': 'alice@example.com', 'To': 'bob@example.com'}
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def extraire_corps(self):
+    parties = self.contenu_brut.split('\n\n', 1)
+    
+    if len(parties) > 1:
+        self.corps = parties[1].strip()
+    
+    if '<html' in self.corps.lower() or '<body' in self.corps.lower():
+        soup = BeautifulSoup(self.corps, 'html.parser')
+        self.corps = soup.get_text(separator=' ', strip=True)
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `parties = self.contenu_brut.split('\n\n', 1)`
+   - `.split('\n\n', 1)` = Coupe le texte en 2 parties au premier double saut de ligne
+   - Dans un email : en-têtes + ligne vide + corps
+   - Le `1` = Coupe maximum 1 fois (donc max 2 parties)
+
+2. `if len(parties) > 1:`
+   - Vérifie qu'il y a bien 2 parties (en-têtes ET corps)
+
+3. `self.corps = parties[1].strip()`
+   - `parties[1]` = La deuxième partie (index 1 car on commence à 0)
+   - `.strip()` = Retire les espaces/sauts de ligne en début/fin
+
+4. `if '<html' in self.corps.lower() or '<body' in self.corps.lower():`
+   - `.lower()` = Met en minuscules pour la comparaison
+   - Détecte si le corps contient du HTML
+
+5. `soup = BeautifulSoup(self.corps, 'html.parser')`
+   - Crée un objet BeautifulSoup qui parse le HTML
+   - `'html.parser'` = Utilise le parser HTML standard de Python
+
+6. `self.corps = soup.get_text(separator=' ', strip=True)`
+   - `.get_text()` = Extrait TOUT le texte (retire les balises HTML)
+   - `separator=' '` = Sépare les éléments par un espace
+   - `strip=True` = Retire les espaces inutiles
+
+EXEMPLE :
+HTML : "<p>Bonjour <b>monde</b>!</p>"
+Résultat : "Bonjour monde !"
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def obtenir_donnees_completes(self) -> dict:
+    self.charger_email()
+    self.extraire_entetes()
+    self.extraire_corps()
+    
+    return {
+        'expediteur': self.entetes.get('From', 'Inconnu'),
+        'destinataire': self.entetes.get('To', 'Inconnu'),
+        'sujet': self.entetes.get('Subject', ''),
+        'date': self.entetes.get('Date', ''),
+        'reply_to': self.entetes.get('Reply-to', ''),
+        'corps': self.corps
+    }
+```
+
+EXPLICATION :
+
+1. `-> dict:` = Type hint : cette fonction retourne un dictionnaire
+
+2. Exécution dans l'ordre :
+   - `self.charger_email()` = Lit le fichier
+   - `self.extraire_entetes()` = Extrait les en-têtes
+   - `self.extraire_corps()` = Extrait le corps
+
+3. `return { ... }` = Retourne un dictionnaire
+
+4. `self.entetes.get('From', 'Inconnu')`
+   - `.get(clé, défaut)` = Récupère la valeur OU la valeur par défaut si inexistant
+   - Si 'From' n'existe pas, retourne 'Inconnu'
+
+RÉSULTAT :
+Un dictionnaire bien structuré avec toutes les infos de l'email
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def parser_email(chemin_fichier: str) -> dict:
+    analyseur = AnalyseurEmail(chemin_fichier)
+    return analyseur.obtenir_donnees_completes()
+```
+
+EXPLICATION :
+- Fonction UTILITAIRE (raccourci pratique)
+- Crée un objet AnalyseurEmail
+- Appelle la méthode complète
+- Retourne le résultat
+
+C'est comme un bouton "tout faire automatiquement"
+
+UTILISATION :
+```python
+donnees = parser_email('spam.eml')
+print(donnees['expediteur'])
+```
+
+
+═══════════════════════════════════════════════════════════════════════════
+🔍 FICHIER 2 : detection_rules.py
+═══════════════════════════════════════════════════════════════════════════
+
+RÔLE : Analyser l'email et détecter les comportements suspects
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+import re
+```
+
+EXPLICATION :
+On importe regex pour chercher des patterns (URLs, domaines, mots-clés)
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+class MoteurDetection:
+    def __init__(self):
+        self.anomalies = []
+```
+
+EXPLICATION :
+- Classe pour détecter les anomalies
+- `self.anomalies = []` = Liste vide pour stocker les problèmes trouvés
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def analyser_email(self, donnees_email: dict) -> list:
+    self.anomalies = []
+    
+    self._verifier_expediteur(donnees_email)
+    self._detecter_urls_suspectes(donnees_email)
+    self._detecter_mots_cles_phishing(donnees_email)
+    
+    return self.anomalies
+```
+
+EXPLICATION :
+- `donnees_email: dict` = Reçoit le dictionnaire de email_parser
+- `-> list` = Retourne une liste
+
+1. Réinitialise la liste des anomalies
+2. Exécute 3 vérifications (les méthodes commençant par _)
+3. Retourne toutes les anomalies trouvées
+
+NOTE : `_nom` = Convention Python pour méthode "privée" (usage interne)
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def _ajouter_anomalie(self, severite: str, description: str):
+    self.anomalies.append({
+        'severite': severite,
+        'description': description
+    })
+```
+
+EXPLICATION :
+- Méthode utilitaire pour ajouter une anomalie
+- `.append()` = Ajoute à la fin de la liste
+- Stocke un dictionnaire avec la sévérité et la description
+
+EXEMPLE :
+```python
+self._ajouter_anomalie('haute', 'URL avec IP détectée')
+# Ajoute : {'severite': 'haute', 'description': 'URL avec IP détectée'}
+```
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def _verifier_expediteur(self, donnees: dict):
+    expediteur = donnees.get('expediteur', '')
+    reply_to = donnees.get('reply_to', '')
+    
+    match_domaine = re.search(r'@([\w\.-]+)', expediteur)
+    
+    if match_domaine:
+        domaine = match_domaine.group(1).lower()
+        
+        if domaine.count('-') > 2 or sum(c.isdigit() for c in domaine) > 3:
+            self._ajouter_anomalie(
+                'moyenne',
+                f"Domaine suspect : {domaine}"
+            )
+    
+    if reply_to and reply_to != expediteur:
+        self._ajouter_anomalie(
+            'haute',
+            f"Reply-To différent : {reply_to}"
+        )
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. Récupère l'expéditeur et le reply-to
+
+2. `re.search(r'@([\w\.-]+)', expediteur)`
+   - Cherche le pattern dans l'expéditeur
+   - `@` = Arobase littéral
+   - `([\w\.-]+)` = Capture : lettres/chiffres/point/tiret (1 ou +)
+   - Retourne un objet Match ou None
+
+3. `if match_domaine:` = Si on a trouvé un match
+
+4. `match_domaine.group(1)` = Récupère le groupe 1 (le domaine)
+   Exemple : "alice@evil-bank.com" → "evil-bank.com"
+
+5. `.lower()` = Met en minuscules
+
+6. `domaine.count('-')` = Compte le nombre de tirets
+   - Si > 2 tirets : suspect (ex: evil-bank-2024.com)
+
+7. `sum(c.isdigit() for c in domaine)` = Compte les chiffres
+   - `for c in domaine` = Pour chaque caractère
+   - `c.isdigit()` = True si c'est un chiffre
+   - `sum(...)` = Somme des True (1) et False (0)
+   - Si > 3 chiffres : suspect (ex: bank2024.com)
+
+8. `if reply_to and reply_to != expediteur:`
+   - `reply_to` = Vérifie que reply_to existe (pas vide)
+   - `reply_to != expediteur` = Vérifie qu'ils sont différents
+   - C'est une technique de phishing courante
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def _detecter_urls_suspectes(self, donnees: dict):
+    corps = donnees.get('corps', '')
+    
+    urls = re.findall(r'https?://[^\s<>"]+', corps, re.IGNORECASE)
+    
+    for url in urls:
+        if re.search(r'(bit\.ly|tinyurl|t\.co|goo\.gl)', url, re.IGNORECASE):
+            self._ajouter_anomalie(
+                'moyenne',
+                f"URL raccourcie : {url}"
+            )
+        
+        if re.search(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', url):
+            self._ajouter_anomalie(
+                'haute',
+                f"URL avec IP : {url}"
+            )
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `re.findall(r'https?://[^\s<>"]+', corps, re.IGNORECASE)`
+   - `findall` = Trouve TOUTES les occurrences
+   - `https?` = http OU https (? = optionnel)
+   - `://` = Littéral
+   - `[^\s<>"]+` = 1 ou + caractères qui ne sont PAS espace, <, >, "
+   - Retourne une LISTE d'URLs
+
+   Exemple : "Visitez http://evil.com et https://malware.ru"
+   Résultat : ['http://evil.com', 'https://malware.ru']
+
+2. `for url in urls:` = Pour chaque URL trouvée
+
+3. Premier test : URL raccourcie
+   - `(bit\.ly|tinyurl|t\.co|goo\.gl)` = Un de ces services
+   - `\.` = Point littéral (échappé)
+   - Si trouvé → anomalie moyenne
+
+4. Deuxième test : Adresse IP
+   - `\d{1,3}` = 1 à 3 chiffres
+   - `\.` = Point littéral
+   - Pattern complet : xxx.xxx.xxx.xxx
+   - Si trouvé → anomalie haute (très suspect)
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def _detecter_mots_cles_phishing(self, donnees: dict):
+    sujet = donnees.get('sujet', '').lower()
+    corps = donnees.get('corps', '').lower()
+    texte = f"{sujet} {corps}"
+    
+    mots_suspects = [
+        'urgent', 'action requise', 'compte bloqué', 'cliquez ici',
+        'vérifiez', 'confirmer', 'mot de passe', 'gagnant'
+    ]
+    
+    mots_trouves = []
+    
+    for mot in mots_suspects:
+        if re.search(rf'\b{re.escape(mot)}\b', texte, re.IGNORECASE):
+            mots_trouves.append(mot)
+    
+    if len(mots_trouves) >= 2:
+        self._ajouter_anomalie(
+            'haute',
+            f"Mots-clés phishing : {', '.join(mots_trouves)}"
+        )
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `.lower()` = Met en minuscules pour comparaison insensible à la casse
+
+2. `f"{sujet} {corps}"` = F-string : combine sujet et corps avec un espace
+
+3. `mots_suspects = [...]` = Liste des mots à chercher
+
+4. `mots_trouves = []` = Liste vide pour stocker ce qu'on trouve
+
+5. Boucle sur chaque mot suspect :
+
+   `rf'\b{re.escape(mot)}\b'`
+   - `r` = Raw string
+   - `f` = F-string (permet d'insérer {mot})
+   - `\b` = Word boundary (frontière de mot)
+   - `re.escape(mot)` = Échappe les caractères spéciaux dans le mot
+   - Exemple : "action requise" devient r'\baction requise\b'
+
+   POURQUOI \b ?
+   Pour chercher le MOT EXACT, pas à l'intérieur d'un autre mot
+   "urgent" matchera dans "C'est urgent" mais PAS dans "chirurgien"
+
+6. `if re.search(...)` = Si le mot est trouvé
+   - `.append(mot)` = Ajoute à la liste
+
+7. `if len(mots_trouves) >= 2:`
+   - Si au moins 2 mots suspects → anomalie haute
+   - Plus il y a de mots, plus c'est suspect
+
+8. `', '.join(mots_trouves)` = Joint les mots avec ", "
+   Exemple : ['urgent', 'cliquez ici'] → "urgent, cliquez ici"
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def detecter_anomalies(donnees_email: dict) -> list:
+    moteur = MoteurDetection()
+    return moteur.analyser_email(donnees_email)
+```
+
+EXPLICATION :
+Fonction utilitaire (raccourci) comme dans email_parser
+Crée un moteur et lance l'analyse
+
+
+═══════════════════════════════════════════════════════════════════════════
+📊 FICHIER 3 : risk_scorer.py
+═══════════════════════════════════════════════════════════════════════════
+
+RÔLE : Calculer un score de risque basé sur les anomalies
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+class CalculateurRisque:
+    POINTS = {
+        'faible': 10,
+        'moyenne': 25,
+        'haute': 40
+    }
+```
+
+EXPLICATION :
+- `POINTS` = Attribut de CLASSE (partagé par toutes les instances)
+- Dictionnaire : à chaque sévérité correspond un nombre de points
+- Écrit en MAJUSCULES = convention pour constante
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def calculer_score(self, anomalies: list) -> dict:
+    score = 0
+    
+    for anomalie in anomalies:
+        severite = anomalie.get('severite', 'faible')
+        score += self.POINTS.get(severite, 10)
+    
+    score = min(score, 100)
+    
+    if score == 0:
+        niveau = 'minimal'
+    elif score < 30:
+        niveau = 'faible'
+    elif score < 60:
+        niveau = 'moyen'
+    else:
+        niveau = 'critique'
+    
+    return {
+        'score': score,
+        'niveau': niveau,
+        'nb_anomalies': len(anomalies)
+    }
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `score = 0` = Initialisation à zéro
+
+2. `for anomalie in anomalies:` = Pour chaque anomalie
+
+3. `anomalie.get('severite', 'faible')` 
+   - Récupère la sévérité
+   - Si n'existe pas, utilise 'faible' par défaut
+
+4. `score += self.POINTS.get(severite, 10)`
+   - `+=` = Addition et assignation (score = score + points)
+   - `self.POINTS.get(severite, 10)` = Récupère les points
+   - Si sévérité inconnue, ajoute 10 par défaut
+
+   EXEMPLE :
+   Anomalie 1 : sévérité 'haute' → +40 points
+   Anomalie 2 : sévérité 'moyenne' → +25 points
+   Score total : 65 points
+
+5. `score = min(score, 100)`
+   - `min(a, b)` = Retourne le plus petit des deux
+   - Plafonne le score à 100 maximum
+   - Si score = 150 → devient 100
+
+6. `if ... elif ... else` = Structure conditionnelle
+
+   - `score == 0` → niveau = 'minimal'
+   - `score < 30` → niveau = 'faible'
+   - `score < 60` → niveau = 'moyen'
+   - sinon → niveau = 'critique'
+
+   EXEMPLE :
+   score = 45 → niveau = 'moyen' (car 30 ≤ 45 < 60)
+
+7. Retourne un dictionnaire avec 3 infos :
+   - Le score numérique (0-100)
+   - Le niveau textuel
+   - Le nombre d'anomalies
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def evaluer_risque(anomalies: list) -> dict:
+    calc = CalculateurRisque()
+    return calc.calculer_score(anomalies)
+```
+
+EXPLICATION :
+Fonction utilitaire (raccourci)
+
+
+═══════════════════════════════════════════════════════════════════════════
+💾 FICHIER 4 : exporters.py
+═══════════════════════════════════════════════════════════════════════════
+
+RÔLE : Sauvegarder les résultats dans un fichier texte
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def exporter_rapport(donnees_email: dict, anomalies: list, evaluation: dict, 
+                     fichier: str = 'rapport.txt'):
+```
+
+EXPLICATION :
+- Fonction (pas de classe, c'est plus simple ici)
+- `fichier: str = 'rapport.txt'` = Paramètre avec VALEUR PAR DÉFAUT
+  Si on ne précise rien, utilisera 'rapport.txt'
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+with open(fichier, 'w', encoding='utf-8') as f:
+```
+
+EXPLICATION :
+- `open(fichier, 'w', ...)` 
+  - `'w'` = Mode écriture ("write")
+  - ATTENTION : écrase le fichier s'il existe déjà
+  - Autres modes : 'r' (lecture), 'a' (ajout)
+- `encoding='utf-8'` = Pour accents et caractères spéciaux
+- `as f` = Nom court pour manipuler le fichier
+- `with` = Gestion automatique (ferme le fichier à la fin)
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+f.write("=" * 60 + "\n")
+f.write("RAPPORT D'ANALYSE EMAIL\n")
+f.write("=" * 60 + "\n\n")
+```
+
+EXPLICATION :
+- `f.write(...)` = Écrit dans le fichier
+- `"=" * 60` = Répète le caractère = 60 fois
+  Résultat : "============================================..."
+- `"\n"` = Saut de ligne (retour à la ligne)
+- `"\n\n"` = Double saut de ligne (ligne vide)
+
+RÉSULTAT DANS LE FICHIER :
+```
+============================================================
+RAPPORT D'ANALYSE EMAIL
+============================================================
+
+```
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+f.write(f"De      : {donnees_email.get('expediteur', 'N/A')}\n")
+```
+
+EXPLICATION :
+- F-string : `f"...{variable}..."`
+- Insère la valeur de la variable dans le texte
+- `.get('expediteur', 'N/A')` = Si n'existe pas, affiche "N/A"
+- Les espaces après "De" servent à ALIGNER les valeurs
+
+RÉSULTAT :
+```
+De      : alice@example.com
+À       : bob@example.com
+Sujet   : Test
+```
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+if anomalies:
+    for i, anom in enumerate(anomalies, 1):
+        f.write(f"{i}. [{anom.get('severite', '?')}] {anom.get('description', '')}\n")
+else:
+    f.write("Aucune anomalie détectée.\n")
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `if anomalies:` = Si la liste N'est PAS vide
+   - Liste vide = False
+   - Liste avec éléments = True
+
+2. `enumerate(anomalies, 1)`
+   - Parcourt la liste EN NUMÉROTANT
+   - `1` = Commence à 1 (pas 0)
+   - Retourne : (numéro, élément)
+
+   EXEMPLE :
+   ```python
+   liste = ['a', 'b', 'c']
+   for i, lettre in enumerate(liste, 1):
+       print(i, lettre)
+   # Affiche :
+   # 1 a
+   # 2 b
+   # 3 c
+   ```
+
+3. `f"{i}. [{anom.get('severite', '?')}] {anom.get('description', '')}\n"`
+   - `{i}` = Le numéro
+   - `{anom.get('severite', '?')}` = La sévérité
+   - `{anom.get('description', '')}` = La description
+
+   RÉSULTAT :
+   ```
+   1. [haute] URL avec IP détectée
+   2. [moyenne] Domaine suspect
+   ```
+
+4. `else:` = Si la liste est vide
+   - Écrit "Aucune anomalie détectée."
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+return fichier
+```
+
+EXPLICATION :
+- Retourne le nom du fichier créé
+- Utile pour confirmer que ça a fonctionné
+
+
+═══════════════════════════════════════════════════════════════════════════
+🎬 FICHIER 5 : __main__.py
+═══════════════════════════════════════════════════════════════════════════
+
+RÔLE : Point d'entrée du programme, orchestre tout
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+import sys
+from email_parser import parser_email
+from detection_rules import detecter_anomalies
+from risk_scorer import evaluer_risque
+from exporters import exporter_rapport
+```
+
+EXPLICATION :
+- `import sys` = Module système (pour lire les arguments de ligne de commande)
+- `from module import fonction` = Importe une fonction spécifique
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def afficher_banniere():
+    print("\n" + "=" * 60)
+    print("  🔒 ANALYSEUR EMAIL SIMPLIFIÉ")
+    print("=" * 60 + "\n")
+```
+
+EXPLICATION :
+- Fonction simple pour afficher le titre
+- `print()` = Affiche à l'écran
+- `\n` au début = Ligne vide avant
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def analyser_email(fichier: str):
+    print(f"📂 Analyse de : {fichier}\n")
+    
+    print("[1/4] Parsing avec BeautifulSoup + Regex...")
+    donnees = parser_email(fichier)
+    print(f"      ✓ Expéditeur : {donnees['expediteur']}")
+```
+
+EXPLICATION :
+
+1. Messages pour l'utilisateur :
+   - `print(f"📂 Analyse de : {fichier}\n")` = Affiche quel fichier
+   - `\n` à la fin = Ligne vide après
+
+2. `donnees = parser_email(fichier)`
+   - Appelle la fonction du module email_parser
+   - Stocke le résultat dans `donnees`
+
+3. `print(f"      ✓ Expéditeur : {donnees['expediteur']}")`
+   - Espaces au début = Indentation pour lisibilité
+   - `✓` = Symbole de validation
+   - `donnees['expediteur']` = Accès au dictionnaire
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+print("[2/4] Détection avec Regex...")
+anomalies = detecter_anomalies(donnees)
+print(f"      ✓ {len(anomalies)} anomalies trouvées")
+```
+
+EXPLICATION :
+- `len(anomalies)` = Nombre d'éléments dans la liste
+- Affiche combien d'anomalies ont été trouvées
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+print("[3/4] Calcul du score...")
+evaluation = evaluer_risque(anomalies)
+print(f"      ✓ Score : {evaluation['score']}/100")
+```
+
+EXPLICATION :
+- Calcule le score
+- Affiche le résultat avec "/100" pour clarté
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+print("[4/4] Export rapport...")
+rapport = exporter_rapport(donnees, anomalies, evaluation)
+print(f"      ✓ Rapport : {rapport}")
+```
+
+EXPLICATION :
+- Crée le fichier rapport
+- Affiche le nom du fichier créé
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+print("\n" + "=" * 60)
+print(f"🎯 RÉSULTAT : {evaluation['score']}/100 - {evaluation['niveau'].upper()}")
+print("=" * 60 + "\n")
+```
+
+EXPLICATION :
+- Résumé final
+- `.upper()` = Met en MAJUSCULES
+  Exemple : "critique" → "CRITIQUE"
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+def main():
+    afficher_banniere()
+    
+    if len(sys.argv) < 2:
+        print("Usage : python __main__.py fichier.eml\n")
+        return
+```
+
+EXPLICATION DÉTAILLÉE :
+
+1. `sys.argv` = Liste des arguments de ligne de commande
+   - `sys.argv[0]` = Nom du script (__main__.py)
+   - `sys.argv[1]` = Premier argument (le fichier .eml)
+
+   EXEMPLE :
+   Commande : `python __main__.py spam.eml`
+   sys.argv = ['__main__.py', 'spam.eml']
+
+2. `len(sys.argv)` = Nombre d'arguments
+
+3. `if len(sys.argv) < 2:`
+   - Si moins de 2 arguments (juste le nom du script)
+   - Signifie que l'utilisateur n'a pas fourni le fichier
+
+4. `print("Usage : ...")` = Affiche comment utiliser le programme
+
+5. `return` = Sort de la fonction (arrête le programme)
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+try:
+    analyser_email(sys.argv[1])
+except FileNotFoundError:
+    print(f"❌ Fichier introuvable : {sys.argv[1]}")
+except Exception as e:
+    print(f"❌ Erreur : {e}")
+```
+
+EXPLICATION :
+
+1. `try:` = Essaie d'exécuter ce code
+
+2. `sys.argv[1]` = Le fichier fourni par l'utilisateur
+
+3. `except FileNotFoundError:` = Si le fichier n'existe pas
+   - Type d'erreur SPÉCIFIQUE
+   - Affiche un message personnalisé
+
+4. `except Exception as e:` = Pour TOUTES les autres erreurs
+   - `as e` = Donne un nom à l'erreur
+   - `{e}` = Affiche le message d'erreur
+
+EXEMPLE :
+```
+Fichier inexistant → "❌ Fichier introuvable : test.eml"
+Autre erreur → "❌ Erreur : division by zero"
+```
+
+
+────────────────────────────────────────────────────────────────────────────
+
+```python
+if __name__ == "__main__":
+    main()
+```
+
+EXPLICATION :
+
+1. `__name__` = Variable spéciale Python
+   - Vaut "__main__" si le fichier est EXÉCUTÉ directement
+   - Vaut le nom du module si IMPORTÉ
+
+2. Cette condition permet de faire :
+   ```python
+   # Exécution directe → lance main()
+   python __main__.py spam.eml
+   
+   # Import depuis un autre fichier → ne lance PAS main()
+   from __main__ import analyser_email
+   ```
+
+C'est une bonne pratique en Python !
+
+
+═══════════════════════════════════════════════════════════════════════════
+🔄 LE FLUX COMPLET (Comment tout s'enchaîne)
+═══════════════════════════════════════════════════════════════════════════
+
+Quand tu tapes : `python __main__.py spam.eml`
+
+ÉTAPE 1 : __main__.py
+────────────────────────────────────────────────────────────────────────────
+1. Python lit sys.argv = ['__main__.py', 'spam.eml']
+2. Vérifie qu'il y a bien 2 arguments ✓
+3. Lance analyser_email('spam.eml')
+
+
+ÉTAPE 2 : email_parser.py
+────────────────────────────────────────────────────────────────────────────
+4. Crée un objet AnalyseurEmail
+5. Lit le fichier spam.eml
+6. Extrait les en-têtes avec regex
+7. Extrait le corps (et nettoie le HTML avec BeautifulSoup si besoin)
+8. Retourne un dictionnaire :
+   {
+     'expediteur': 'phishing@evil.com',
+     'destinataire': 'victime@example.com',
+     'sujet': 'URGENT',
+     'corps': 'Cliquez ici...'
+   }
+
+
+ÉTAPE 3 : detection_rules.py
+────────────────────────────────────────────────────────────────────────────
+9. Crée un objet MoteurDetection
+10. Vérifie l'expéditeur avec regex
+11. Cherche les URLs avec regex
+12. Cherche les mots-clés avec regex
+13. Retourne une liste :
+    [
+      {'severite': 'haute', 'description': 'URL avec IP'},
+      {'severite': 'moyenne', 'description': 'Domaine suspect'}
+    ]
+
+
+ÉTAPE 4 : risk_scorer.py
+────────────────────────────────────────────────────────────────────────────
+14. Crée un objet CalculateurRisque
+15. Parcourt les anomalies
+16. Additionne les points (haute=40 + moyenne=25 = 65)
+17. Détermine le niveau (65 → 'critique')
+18. Retourne :
+    {
+      'score': 65,
+      'niveau': 'critique',
+      'nb_anomalies': 2
+    }
+
+
+ÉTAPE 5 : exporters.py
+────────────────────────────────────────────────────────────────────────────
+19. Ouvre le fichier rapport.txt en écriture
+20. Écrit les en-têtes
+21. Écrit les infos de l'email
+22. Écrit le score
+23. Écrit la liste des anomalies
+24. Ferme le fichier
+25. Retourne 'rapport.txt'
+
+
+ÉTAPE 6 : Affichage final
+────────────────────────────────────────────────────────────────────────────
+26. Affiche le résumé à l'écran :
+    🎯 RÉSULTAT : 65/100 - CRITIQUE
+
+
+═══════════════════════════════════════════════════════════════════════════
+💡 CONCEPTS CLÉS UTILISÉS
+═══════════════════════════════════════════════════════════════════════════
+
+1. CLASSES ET OBJETS
+────────────────────────────────────────────────────────────────────────────
+- Classe = Moule/Template
+- Objet = Instance créée à partir de la classe
+- self = L'objet lui-même
+
+Exemple :
+```python
+class Voiture:
+    def __init__(self, couleur):
+        self.couleur = couleur
+
+ma_voiture = Voiture('rouge')  # Crée un objet
+print(ma_voiture.couleur)       # Accède à l'attribut
+```
+
+
+2. MÉTHODES
+────────────────────────────────────────────────────────────────────────────
+- Fonction à l'intérieur d'une classe
+- Premier paramètre toujours `self`
+
+```python
+class Calculette:
+    def additionner(self, a, b):
+        return a + b
+
+calc = Calculette()
+resultat = calc.additionner(5, 3)  # 8
+```
+
+
+3. DICTIONNAIRES
+────────────────────────────────────────────────────────────────────────────
+- Structure clé: valeur
+- Accès rapide par clé
+
+```python
+personne = {
+    'nom': 'Alice',
+    'age': 25
+}
+print(personne['nom'])          # Alice
+print(personne.get('ville', 'Paris'))  # Paris (défaut)
+```
+
+
+4. LISTES
+────────────────────────────────────────────────────────────────────────────
+- Collection ordonnée
+- Index commence à 0
+
+```python
+fruits = ['pomme', 'banane', 'orange']
+print(fruits[0])        # pomme
+print(len(fruits))      # 3
+fruits.append('kiwi')   # Ajoute à la fin
+```
+
+
+5. F-STRINGS
+────────────────────────────────────────────────────────────────────────────
+- Insertion de variables dans du texte
+
+```python
+nom = 'Bob'
+age = 30
+message = f"Bonjour {nom}, tu as {age} ans"
+# Résultat : "Bonjour Bob, tu as 30 ans"
+```
+
+
+6. WITH (CONTEXT MANAGER)
+────────────────────────────────────────────────────────────────────────────
+- Gestion automatique des ressources
+- Ferme automatiquement les fichiers
+
+```python
+with open('fichier.txt', 'r') as f:
+    contenu = f.read()
+# Le fichier est automatiquement fermé ici
+```
+
+
+7. TRY/EXCEPT
+────────────────────────────────────────────────────────────────────────────
+- Gestion des erreurs
+
+```python
+try:
+    resultat = 10 / 0
+except ZeroDivisionError:
+    print("Division par zéro !")
+```
+
+
+8. REGEX
+────────────────────────────────────────────────────────────────────────────
+- Recherche de patterns dans du texte
+
+```python
+import re
+texte = "Mon email : bob@example.com"
+match = re.search(r'@([\w\.-]+)', texte)
+if match:
+    print(match.group(1))  # example.com
+```
+
+
+═══════════════════════════════════════════════════════════════════════════
+✅ RÉSUMÉ FINAL
+═══════════════════════════════════════════════════════════════════════════
+
+Le programme fait 4 choses :
+
+1. 📧 LIT l'email (BeautifulSoup + Regex)
+2. 🔍 DÉTECTE les anomalies (Regex)
+3. 📊 CALCULE le score (Addition simple)
+4. 💾 SAUVEGARDE le rapport (Écriture fichier)
+
+Chaque fichier a UN rôle clair.
+Chaque fonction fait UNE chose.
+C'est SIMPLE, CLAIR, et EFFICACE !
+
+═══════════════════════════════════════════════════════════════════════════
