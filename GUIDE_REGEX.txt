@@ -1,0 +1,306 @@
+═══════════════════════════════════════════════════════════════════════════
+                    GUIDE COMPLET DES REGEX UTILISÉES
+                         Analyseur Email Simplifié
+═══════════════════════════════════════════════════════════════════════════
+
+Ce document explique CHAQUE regex utilisée dans le projet avec :
+- Le pattern exact
+- Sa signification caractère par caractère
+- Des exemples concrets
+- Pourquoi on l'utilise
+
+═══════════════════════════════════════════════════════════════════════════
+📧 PARTIE 1 : EXTRACTION DES EN-TÊTES (email_parser.py)
+═══════════════════════════════════════════════════════════════════════════
+
+REGEX #1 : Extraction des en-têtes email
+────────────────────────────────────────────────────────────────────────────
+Pattern : ^(From|To|Subject|Date|Reply-To):\s*(.+)$
+
+Décomposition :
+  ^                → Début de ligne
+  (From|To|...)    → Capture UN de ces mots (groupe 1)
+  :                → Deux-points littéral
+  \s*              → Zéro ou plusieurs espaces
+  (.+)             → Capture tout le reste (groupe 2)
+  $                → Fin de ligne
+
+Flags :
+  re.MULTILINE     → ^ et $ matchent chaque ligne (pas juste début/fin texte)
+  re.IGNORECASE    → Insensible à la casse (From = from = FROM)
+
+Exemple :
+  Texte : "From: alice@example.com"
+  Match : groupe(1) = "From", groupe(2) = "alice@example.com"
+
+Pourquoi ?
+  Les en-têtes email suivent le format "Nom: Valeur"
+  On veut extraire à la fois le nom ET la valeur
+
+
+═══════════════════════════════════════════════════════════════════════════
+🌐 PARTIE 2 : DÉTECTION D'URLS (detection_rules.py)
+═══════════════════════════════════════════════════════════════════════════
+
+REGEX #2 : Extraction de toutes les URLs
+────────────────────────────────────────────────────────────────────────────
+Pattern : https?://[^\s<>"]+
+
+Décomposition :
+  https?           → "http" ou "https" (? = s optionnel)
+  ://              → Littéral "://"
+  [^\s<>"]+        → Un ou plusieurs caractères SAUF espace, <, >, "
+                     ^ dans [] = négation
+                     + = au moins 1 caractère
+
+Exemple :
+  Texte : "Cliquez sur https://evil.com/phishing pour continuer"
+  Match : "https://evil.com/phishing"
+
+Pourquoi ?
+  Détecte les URLs HTTP/HTTPS
+  S'arrête aux espaces ou guillemets (fin naturelle d'URL)
+
+
+REGEX #3 : Détection d'URL raccourcie
+────────────────────────────────────────────────────────────────────────────
+Pattern : (bit\.ly|tinyurl|t\.co|goo\.gl)
+
+Décomposition :
+  bit\.ly          → "bit.ly" (\ échappe le point = point littéral, pas "n'importe quel caractère")
+  |                → OU
+  tinyurl          → Chaîne "tinyurl"
+  |                → OU
+  t\.co            → "t.co"
+  |                → OU
+  goo\.gl          → "goo.gl"
+
+Exemple :
+  URL : "https://bit.ly/abc123"
+  Match : "bit.ly"
+
+Pourquoi ?
+  Les raccourcisseurs d'URL cachent la vraie destination
+  C'est une technique commune de phishing
+
+
+REGEX #4 : Détection d'adresse IP
+────────────────────────────────────────────────────────────────────────────
+Pattern : \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}
+
+Décomposition :
+  \d{1,3}          → 1 à 3 chiffres (\d = digit = [0-9])
+  \.               → Point littéral (échappé)
+  \d{1,3}          → 1 à 3 chiffres
+  \.               → Point littéral
+  \d{1,3}          → 1 à 3 chiffres
+  \.               → Point littéral
+  \d{1,3}          → 1 à 3 chiffres
+
+Exemple :
+  URL : "http://192.168.1.100/login"
+  Match : "192.168.1.100"
+
+Pourquoi ?
+  Les sites légitimes utilisent des noms de domaine (google.com)
+  Les IP directes (192.168.1.1) sont suspectes
+
+
+═══════════════════════════════════════════════════════════════════════════
+📬 PARTIE 3 : ANALYSE DE L'EXPÉDITEUR (detection_rules.py)
+═══════════════════════════════════════════════════════════════════════════
+
+REGEX #5 : Extraction du domaine
+────────────────────────────────────────────────────────────────────────────
+Pattern : @([\w\.-]+)
+
+Décomposition :
+  @                → Arobase littéral
+  (                → Début du groupe de capture
+  [\w\.-]+         → Un ou plusieurs caractères parmi :
+    \w             → Lettres, chiffres, underscore [a-zA-Z0-9_]
+    \.             → Point (échappé)
+    -              → Tiret
+  +                → Au moins 1 caractère
+  )                → Fin du groupe de capture
+
+Exemple :
+  Email : "alice@evil-bank-2024.com"
+  Match : groupe(1) = "evil-bank-2024.com"
+
+Pourquoi ?
+  On veut isoler le domaine pour analyser sa structure
+  Permet de détecter les domaines suspects
+
+
+═══════════════════════════════════════════════════════════════════════════
+🔑 PARTIE 4 : DÉTECTION DE MOTS-CLÉS (detection_rules.py)
+═══════════════════════════════════════════════════════════════════════════
+
+REGEX #6 : Recherche de mots-clés exacts
+────────────────────────────────────────────────────────────────────────────
+Pattern : \b{mot_cle}\b
+
+Décomposition :
+  \b               → Word boundary (frontière de mot)
+                     Match entre un \w et un \W
+  {mot_cle}        → Le mot recherché (ex: "urgent")
+  \b               → Word boundary (frontière de mot)
+
+Exemple avec "urgent" :
+  Texte : "C'est urgent !"
+  Match : "urgent" ✓
+  
+  Texte : "chirurgien"
+  Match : RIEN ✗ (urgent est à l'intérieur, pas un mot complet)
+
+Pourquoi ?
+  \b assure qu'on cherche le MOT ENTIER
+  Sans \b, "urgent" matcherait dans "chirurgien"
+
+
+═══════════════════════════════════════════════════════════════════════════
+🎓 CONCEPTS AVANCÉS
+═══════════════════════════════════════════════════════════════════════════
+
+1. FLAGS (Modificateurs)
+────────────────────────────────────────────────────────────────────────────
+  re.IGNORECASE    → Insensible à la casse (A = a)
+  re.MULTILINE     → ^ et $ fonctionnent par ligne
+  re.DOTALL        → . matche aussi les retours à la ligne
+
+Utilisation :
+  re.search(pattern, texte, re.IGNORECASE | re.MULTILINE)
+
+
+2. GROUPES DE CAPTURE
+────────────────────────────────────────────────────────────────────────────
+  Parenthèses ( ) créent un groupe
+
+  match = re.search(r'@([\w\.-]+)', 'alice@example.com')
+  match.group(0)   → Tout le match : "@example.com"
+  match.group(1)   → Premier groupe : "example.com"
+
+
+3. QUANTIFICATEURS
+────────────────────────────────────────────────────────────────────────────
+  ?     → 0 ou 1 fois (optionnel)
+  *     → 0 ou plusieurs fois
+  +     → 1 ou plusieurs fois
+  {n}   → Exactement n fois
+  {n,m} → Entre n et m fois
+
+  Exemples :
+  https?     → http ou https
+  \d{3}      → Exactement 3 chiffres
+  \w+        → Au moins 1 lettre/chiffre
+
+
+4. CARACTÈRES SPÉCIAUX
+────────────────────────────────────────────────────────────────────────────
+  .     → N'importe quel caractère (sauf \n)
+  \d    → Chiffre [0-9]
+  \w    → Lettre/chiffre/underscore [a-zA-Z0-9_]
+  \s    → Espace/tab/retour ligne
+  ^     → Début de ligne
+  $     → Fin de ligne
+  |     → OU logique
+  []    → Classe de caractères
+  [^]   → Classe négative (tout SAUF)
+
+
+5. ÉCHAPPEMENT
+────────────────────────────────────────────────────────────────────────────
+  Certains caractères ont un sens spécial : . + * ? [ ] ( ) { } ^ $ | \
+  
+  Pour les chercher littéralement, il faut les échapper avec \
+  
+  Exemples :
+  \.    → Point littéral (sinon . = n'importe quel caractère)
+  \?    → Point d'interrogation littéral
+  \$    → Dollar littéral
+
+
+═══════════════════════════════════════════════════════════════════════════
+📊 TABLEAU RÉCAPITULATIF DES REGEX DU PROJET
+═══════════════════════════════════════════════════════════════════════════
+
+╔═══════════════════════════╦═══════════════════════════════╦═══════════════╗
+║ Fonction                  ║ Pattern                       ║ Fichier       ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ Extraire en-têtes         ║ ^(From|To|...):\s*(.+)$       ║ email_parser  ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ Trouver URLs              ║ https?://[^\s<>"]+            ║ detection     ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ Détecter IP               ║ \d{1,3}\.\d{1,3}\.\d{1,3}...  ║ detection     ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ Extraire domaine          ║ @([\w\.-]+)                   ║ detection     ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ Chercher mots-clés        ║ \b{mot}\b                     ║ detection     ║
+╠═══════════════════════════╬═══════════════════════════════╬═══════════════╣
+║ URL raccourcie            ║ (bit\.ly|tinyurl|...)         ║ detection     ║
+╚═══════════════════════════╩═══════════════════════════════╩═══════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════
+🧪 EXEMPLES DE TEST
+═══════════════════════════════════════════════════════════════════════════
+
+Test 1 : Extraction d'URL
+────────────────────────────────────────────────────────────────────────────
+import re
+
+texte = "Visitez https://example.com/page pour plus d'infos"
+urls = re.findall(r'https?://[^\s<>"]+', texte)
+print(urls)  # ['https://example.com/page']
+
+
+Test 2 : Détection d'IP
+────────────────────────────────────────────────────────────────────────────
+import re
+
+url = "http://192.168.1.100/login"
+if re.search(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', url):
+    print("IP détectée !")  # ✓
+
+
+Test 3 : Extraction de domaine
+────────────────────────────────────────────────────────────────────────────
+import re
+
+email = "phishing@evil-bank.com"
+match = re.search(r'@([\w\.-]+)', email)
+if match:
+    print(match.group(1))  # evil-bank.com
+
+
+Test 4 : Recherche de mot-clé
+────────────────────────────────────────────────────────────────────────────
+import re
+
+texte = "C'est urgent ! Cliquez ici"
+if re.search(r'\b(urgent|cliquez)\b', texte, re.IGNORECASE):
+    print("Mot suspect trouvé !")  # ✓
+
+
+═══════════════════════════════════════════════════════════════════════════
+✅ RÉSUMÉ
+═══════════════════════════════════════════════════════════════════════════
+
+Les regex sont utilisées dans ce projet pour :
+
+1. PARSER les en-têtes email (From, To, Subject...)
+2. EXTRAIRE les URLs du corps du message
+3. DÉTECTER les patterns suspects (IP, raccourcisseurs)
+4. IDENTIFIER les mots-clés de phishing
+5. ANALYSER la structure des domaines
+
+Avantages :
+✓ Rapide (natif Python)
+✓ Puissant (patterns complexes)
+✓ Flexible (modification facile des règles)
+✓ Aucune dépendance externe
+
+C'est l'outil IDÉAL pour l'analyse de texte et la détection de patterns !
+
+═══════════════════════════════════════════════════════════════════════════

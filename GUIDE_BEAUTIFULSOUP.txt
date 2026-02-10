@@ -1,0 +1,295 @@
+═══════════════════════════════════════════════════════════════════════════
+                    GUIDE BEAUTIFULSOUP
+                  Analyseur Email Simplifié
+═══════════════════════════════════════════════════════════════════════════
+
+Ce document explique POURQUOI et COMMENT on utilise BeautifulSoup.
+
+═══════════════════════════════════════════════════════════════════════════
+🤔 POURQUOI BEAUTIFULSOUP ?
+═══════════════════════════════════════════════════════════════════════════
+
+PROBLÈME :
+────────────────────────────────────────────────────────────────────────────
+Les emails peuvent contenir du HTML :
+
+  <html>
+    <body>
+      <p>Cliquez <a href="http://evil.com">ici</a> !</p>
+    </body>
+  </html>
+
+On veut extraire : "Cliquez ici !"
+Pas : "<html><body><p>Cliquez <a href=..."
+
+
+SOLUTIONS POSSIBLES :
+────────────────────────────────────────────────────────────────────────────
+1. Regex → COMPLEXE et FRAGILE
+   Pattern : <[^>]+> pour retirer les balises
+   Problème : Ne gère pas les cas complexes (balises imbriquées, attributs)
+
+2. String manipulation → FASTIDIEUX
+   html.replace('<p>', '').replace('</p>', '')...
+   Problème : Il y a des centaines de balises HTML
+
+3. BeautifulSoup → SIMPLE et ROBUSTE ✓
+   soup = BeautifulSoup(html, 'html.parser')
+   texte = soup.get_text()
+   Problème : Aucun ! C'est fait pour ça
+
+
+═══════════════════════════════════════════════════════════════════════════
+📚 BEAUTIFULSOUP - LES BASES
+═══════════════════════════════════════════════════════════════════════════
+
+Installation :
+────────────────────────────────────────────────────────────────────────────
+pip install beautifulsoup4
+
+
+Import :
+────────────────────────────────────────────────────────────────────────────
+from bs4 import BeautifulSoup
+
+
+═══════════════════════════════════════════════════════════════════════════
+🔧 UTILISATION DANS LE PROJET
+═══════════════════════════════════════════════════════════════════════════
+
+Code dans email_parser.py :
+────────────────────────────────────────────────────────────────────────────
+```python
+def extraire_corps(self):
+    # Séparation en-têtes / corps
+    parties = self.contenu_brut.split('\n\n', 1)
+    
+    if len(parties) > 1:
+        self.corps = parties[1].strip()
+    
+    # Si c'est du HTML, on utilise BeautifulSoup
+    if '<html' in self.corps.lower() or '<body' in self.corps.lower():
+        soup = BeautifulSoup(self.corps, 'html.parser')
+        self.corps = soup.get_text(separator=' ', strip=True)
+```
+
+
+EXPLICATION LIGNE PAR LIGNE :
+────────────────────────────────────────────────────────────────────────────
+1. soup = BeautifulSoup(self.corps, 'html.parser')
+   
+   BeautifulSoup(contenu, parser)
+   - contenu : Le HTML à parser
+   - 'html.parser' : Le parser à utiliser (inclus dans Python, pas de dépendance)
+   
+   Autres parsers possibles :
+   - 'lxml' : Plus rapide mais nécessite installation (pip install lxml)
+   - 'html5lib' : Plus robuste mais plus lent
+   
+   On utilise 'html.parser' car :
+   ✓ Inclus dans Python (pas de dépendance)
+   ✓ Suffisant pour notre usage
+   ✓ Rapide pour des emails
+
+
+2. soup.get_text(separator=' ', strip=True)
+   
+   .get_text() → Extrait TOUT le texte (retire les balises)
+   
+   Arguments :
+   - separator=' ' : Sépare les éléments par un espace
+   - strip=True : Retire les espaces en début/fin
+
+
+═══════════════════════════════════════════════════════════════════════════
+📊 EXEMPLES CONCRETS
+═══════════════════════════════════════════════════════════════════════════
+
+Exemple 1 : HTML Simple
+────────────────────────────────────────────────────────────────────────────
+HTML :
+  <p>Bonjour <b>monde</b> !</p>
+
+Code :
+  soup = BeautifulSoup(html, 'html.parser')
+  texte = soup.get_text()
+
+Résultat :
+  "Bonjour monde !"
+
+
+Exemple 2 : HTML avec liens
+────────────────────────────────────────────────────────────────────────────
+HTML :
+  <a href="http://evil.com">Cliquez ici</a>
+
+Code :
+  soup = BeautifulSoup(html, 'html.parser')
+  texte = soup.get_text()
+
+Résultat :
+  "Cliquez ici"
+
+Note : Le lien est RETIRÉ, seul le texte visible reste
+
+
+Exemple 3 : Email phishing complet
+────────────────────────────────────────────────────────────────────────────
+HTML :
+  <html>
+    <body>
+      <h1>URGENT</h1>
+      <p>Votre compte sera <b>bloqué</b> !</p>
+      <a href="http://192.168.1.1/fake">Cliquez ici</a>
+    </body>
+  </html>
+
+Code :
+  soup = BeautifulSoup(html, 'html.parser')
+  texte = soup.get_text(separator=' ', strip=True)
+
+Résultat :
+  "URGENT Votre compte sera bloqué ! Cliquez ici"
+
+Avantage :
+  Le texte nettoyé peut maintenant être analysé par regex pour détecter
+  les mots-clés "urgent", "bloqué", "cliquez ici"
+
+
+═══════════════════════════════════════════════════════════════════════════
+⚡ AUTRES MÉTHODES UTILES (Non utilisées dans ce projet mais bonnes à savoir)
+═══════════════════════════════════════════════════════════════════════════
+
+1. Trouver un élément :
+────────────────────────────────────────────────────────────────────────────
+soup.find('a')              # Premier lien <a>
+soup.find('a', href=True)   # Premier lien avec attribut href
+soup.find_all('p')          # Tous les paragraphes <p>
+
+
+2. Extraire attributs :
+────────────────────────────────────────────────────────────────────────────
+lien = soup.find('a')
+url = lien['href']          # Récupère l'URL du lien
+
+
+3. Navigation :
+────────────────────────────────────────────────────────────────────────────
+soup.body                   # Élément <body>
+soup.title.string           # Texte du <title>
+
+
+═══════════════════════════════════════════════════════════════════════════
+🎯 BEAUTIFULSOUP vs REGEX - QUAND UTILISER QUOI ?
+═══════════════════════════════════════════════════════════════════════════
+
+BEAUTIFULSOUP :
+────────────────────────────────────────────────────────────────────────────
+✓ Parser du HTML/XML
+✓ Extraire du texte propre
+✓ Naviguer dans la structure du document
+✓ Extraire des attributs (href, src...)
+
+Exemple : <p>Hello <b>world</b></p> → "Hello world"
+
+
+REGEX :
+────────────────────────────────────────────────────────────────────────────
+✓ Trouver des patterns dans du TEXTE
+✓ Extraire des emails, URLs, numéros
+✓ Valider des formats
+✓ Rechercher des mots-clés
+
+Exemple : "Visitez http://example.com" → "http://example.com"
+
+
+COMBINAISON (Notre projet) :
+────────────────────────────────────────────────────────────────────────────
+1. BeautifulSoup nettoie le HTML → texte propre
+2. Regex analyse le texte → détection de patterns
+
+Pipeline :
+  HTML → [BeautifulSoup] → Texte → [Regex] → Anomalies
+
+
+═══════════════════════════════════════════════════════════════════════════
+🧪 TEST BEAUTIFULSOUP
+═══════════════════════════════════════════════════════════════════════════
+
+Créez test_bs4.py :
+────────────────────────────────────────────────────────────────────────────
+```python
+from bs4 import BeautifulSoup
+
+# Email HTML malveillant
+html_email = """
+<html>
+  <body>
+    <h1>URGENT - Action requise</h1>
+    <p>Votre compte sera <b>suspendu</b> !</p>
+    <p>Cliquez <a href="http://evil.com">ici</a> immédiatement</p>
+  </body>
+</html>
+"""
+
+# Parsing
+soup = BeautifulSoup(html_email, 'html.parser')
+
+# Extraction du texte
+texte_propre = soup.get_text(separator=' ', strip=True)
+
+print("HTML original :")
+print(html_email)
+print("\nTexte extrait :")
+print(texte_propre)
+print("\nMots-clés détectés :")
+if 'urgent' in texte_propre.lower():
+    print("- URGENT (phishing)")
+if 'suspendu' in texte_propre.lower():
+    print("- Suspendu (phishing)")
+```
+
+Résultat attendu :
+────────────────────────────────────────────────────────────────────────────
+HTML original :
+<html>...balises...</html>
+
+Texte extrait :
+URGENT - Action requise Votre compte sera suspendu ! Cliquez ici immédiatement
+
+Mots-clés détectés :
+- URGENT (phishing)
+- Suspendu (phishing)
+
+
+═══════════════════════════════════════════════════════════════════════════
+📖 RESSOURCES
+═══════════════════════════════════════════════════════════════════════════
+
+Documentation officielle :
+https://www.crummy.com/software/BeautifulSoup/bs4/doc/
+
+Tutoriel :
+https://realpython.com/beautiful-soup-web-scraper-python/
+
+
+═══════════════════════════════════════════════════════════════════════════
+✅ RÉSUMÉ
+═══════════════════════════════════════════════════════════════════════════
+
+BeautifulSoup dans ce projet :
+────────────────────────────────────────────────────────────────────────────
+1. Détecte si le corps de l'email est en HTML
+2. Parse le HTML avec BeautifulSoup
+3. Extrait le texte sans les balises
+4. Le texte propre est ensuite analysé par regex
+
+Avantages :
+✓ Simple (1 ligne de code)
+✓ Robuste (gère tous les cas HTML)
+✓ Maintenu (bibliothèque populaire)
+✓ Complémentaire avec regex
+
+C'est l'outil PARFAIT pour nettoyer le HTML avant l'analyse !
+
+═══════════════════════════════════════════════════════════════════════════
